@@ -1,6 +1,5 @@
 # permanent-portfolio
-![首页界面](screenshot.png)
-
+![首页界面](screenshot.png) (screenshot2.png)
 该项目提供一个网页，监控你的永久投资组合，指导你按照固定比例进行再平衡，提醒你在特定时间进行加仓； 
 
 
