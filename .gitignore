@@ -1,0 +1,17 @@
+# Database
+#*.db
+#*.db-shm
+#*.db-wal
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store

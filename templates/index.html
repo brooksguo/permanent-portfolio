@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>中国永久投资组合 Dashboard</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg: #f8f9fa;
+      --card-bg: #ffffff;
+      --border: #e9ecef;
+      --text-muted: #6c757d;
+      --green: #198754;
+      --red: #dc3545;
+      --warn: #ff6b35;
+    }
+    body { background: var(--bg); font-size: 14px; }
+    .navbar { background: #1a1a2e !important; }
+    .navbar-brand { font-weight: 700; letter-spacing: 1px; color: #e8c46a !important; }
+
+    /* ── 汇总卡片 ── */
+    .summary-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 20px;
+      height: 100%;
+    }
+    .summary-card .label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+    .summary-card .value { font-size: 24px; font-weight: 700; line-height: 1.2; }
+    .summary-card .sub   { font-size: 12px; margin-top: 4px; }
+
+    /* ── 通用卡片 ── */
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .panel-title {
+      font-size: 15px; font-weight: 600;
+      border-left: 4px solid #1a1a2e;
+      padding-left: 10px; margin-bottom: 16px;
+    }
+
+    /* ── 表格 ── */
+    .table th { font-size: 12px; color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+    .table td { vertical-align: middle; white-space: nowrap; }
+    .deviation-warn { color: var(--warn); font-weight: 600; }
+    .deviation-ok   { color: var(--text-muted); }
+
+    /* ── 再平衡 ── */
+    .rebalance-alert {
+      background: #fff8e1;
+      border: 1px solid #ffe082;
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .rebalance-badge {
+      display: inline-block;
+      background: #e65100; color: #fff;
+      border-radius: 4px; padding: 2px 8px;
+      font-size: 12px; font-weight: 600;
+      margin-right: 8px;
+    }
+
+    /* ── 金字塔 ── */
+    .pyramid-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .pyramid-card.has-triggered {
+      border-color: #dc3545;
+      box-shadow: 0 0 0 2px rgba(220,53,69,.15);
+    }
+    .tier-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+    .tier-badge {
+      font-size: 11px; padding: 2px 6px;
+      border-radius: 4px; font-weight: 600;
+    }
+    .tier-triggered-row {
+      background: #fff0f0;
+      border: 1px solid #f5c6cb;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin: 6px 0;
+      animation: pulse-red 1.8s ease-in-out infinite;
+    }
+    .tier-triggered-row .tier-badge { background: #dc3545; color: #fff; font-size: 12px; padding: 3px 8px; }
+    .tier-pending   { background: #f5f5f5; color: #9e9e9e; }
+    @keyframes pulse-red {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220,53,69,0); }
+      50%       { box-shadow: 0 0 0 4px rgba(220,53,69,.25); }
+    }
+
+    /* ── 颜色工具 ── */
+    .text-up   { color: var(--red); }
+    .text-down { color: var(--green); }
+    .text-flat { color: var(--text-muted); }
+
+    /* ── 图表 ── */
+    #chart-netvalue  { height: 360px; }
+    #chart-contrib   { height: 280px; }
+
+    /* ── 加载遮罩 ── */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: rgba(255,255,255,.85);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 9999; gap: 16px;
+    }
+    .spinner-ring {
+      width: 48px; height: 48px;
+      border: 5px solid #e9ecef;
+      border-top-color: #1a1a2e;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── 历史记录折叠 ── */
+    #history-body { display: none; }
+
+    /* ── 每日历史数据表格 ── */
+    #daily-history-table thead th {
+      background: #f8f9fa; font-size: 11px;
+      color: var(--text-muted); white-space: nowrap;
+      border-bottom: 2px solid var(--border);
+      padding: 6px 8px;
+    }
+    #daily-history-table td { padding: 5px 8px; white-space: nowrap; }
+    #daily-history-table tr:hover td { background: #f5f7fa; }
+    .daily-col-total { font-weight: 600; }
+    .daily-col-change-up   { color: var(--red); }
+    .daily-col-change-down { color: var(--green); }
+    .daily-col-change-flat { color: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<!-- 加载遮罩 -->
+<div id="loading-overlay">
+  <div class="spinner-ring"></div>
+  <div id="loading-msg" style="color:#555;font-size:15px;">正在拉取最新数据…</div>
+  <div style="color:#999;font-size:13px;">起始时间：<span id="loading-start-date">2026-01-01</span></div>
+</div>
+
+<!-- 导航 -->
+<nav class="navbar navbar-dark mb-0">
+  <div class="container-fluid">
+    <div>
+      <span class="navbar-brand">📊 永久投资组合</span>
+      <span class="text-white-50 d-none d-md-inline" style="font-size:12px;">股票·黄金·长短债等低相关资产，固定目标比例，偏离时再平衡，下跌时金字塔加仓——各类资产相互对冲，穿越经济周期</span>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <span id="last-updated" class="text-white-50" style="font-size:12px;"></span>
+      <button class="btn btn-sm btn-outline-warning" onclick="toggleSettings()">⚙️ 初始化</button>
+      <button class="btn btn-sm btn-outline-info" onclick="togglePyramidRules()">📐 加仓规则设置</button>
+    </div>
+  </div>
+</nav>
+
+<!-- 用户操作手册（常驻） -->
+<div id="manual-panel" style="background:#1a1a2e;border-top:1px solid #2e2e4e;" class="mb-0">
+  <div class="container-fluid px-4 py-3">
+    <div class="row g-3" style="color:#cdd;font-size:13px;">
+      <div class="col-12 col-md-6 col-xl-3">
+        <div style="color:#e8c46a;font-weight:600;margin-bottom:6px;">① 初始化</div>
+        点击「⚙️ 初始化」，设置初始总资产、起始日期，以及各基金名称、代码和目标比例（合计须为 100%），确认后系统按比例建仓。
+      </div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div style="color:#e8c46a;font-weight:600;margin-bottom:6px;">② 加仓规则设置</div>
+        点击「📐 加仓规则设置」，为各资产配置最多 3 档金字塔加仓：填写触发跌幅（%）和对应买入金额，留空则该资产不触发加仓。
+      </div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div style="color:#e8c46a;font-weight:600;margin-bottom:6px;">③ 投入 / 取出资金</div>
+        「投入资金」按目标比例买入各资产。「取出资金」按目标比例从各资产等比赎回，赎回后持仓仍保持目标配比。
+      </div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div style="color:#e8c46a;font-weight:600;margin-bottom:6px;">④ 自动再平衡 & 加仓</div>
+        系统每次刷新自动检测：偏离超阈值或到达季度首日触发再平衡；资产从历史高点下跌达到设定档位时自动金字塔加仓。
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="container-fluid px-4 mt-4">
+
+  <!-- ── 设置面板（内联） ── -->
+  <div id="settings-panel" style="display:none;" class="mb-4">
+    <div class="panel">
+      <div class="panel-title">初始化设置</div>
+
+      <!-- 基础参数 -->
+      <div class="row g-3 align-items-start mb-3">
+        <div class="col-12 col-md-4">
+          <label class="form-label fw-500">初始总资产（元）</label>
+          <input type="number" class="form-control" id="input-total-assets" placeholder="1000000" min="10000" step="10000">
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label fw-500">初始日期</label>
+          <input type="text" class="form-control" id="input-start-date" placeholder="20260101" maxlength="8">
+          <div class="form-text">格式：YYYYMMDD</div>
+        </div>
+      </div>
+
+      <!-- 资产配置表格 -->
+      <div class="mb-2 d-flex justify-content-between align-items-center">
+        <label class="form-label fw-500 mb-0">资产配置</label>
+        <span id="pct-total-hint" style="font-size:12px;"></span>
+      </div>
+      <table class="table table-sm table-bordered mb-2" style="font-size:13px;">
+        <thead style="background:#f8f8f8;">
+          <tr>
+            <th style="width:35%;">基金名称</th>
+            <th style="width:25%;">基金代码</th>
+            <th style="width:20%;">目标比例（%）</th>
+            <th style="width:10%;"></th>
+          </tr>
+        </thead>
+        <tbody id="assets-table-body"></tbody>
+      </table>
+      <button class="btn btn-outline-secondary btn-sm mb-3" onclick="addAssetRow()">＋ 添加资产</button>
+
+      <div class="mt-1 mb-3" style="font-size:13px; color:var(--red);">
+        ⚠ 确认后将清空所有持仓及调仓记录，从初始日期按目标比例重新建仓。
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-secondary btn-sm" onclick="toggleSettings()">取消</button>
+        <button class="btn btn-danger btn-sm" onclick="reinitialize()">确认初始化</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 加仓规则面板（独立） ── -->
+  <div id="pyramid-rules-panel" style="display:none;" class="mb-4">
+    <div class="panel">
+      <div class="panel-title">加仓规则设置</div>
+      <div class="mb-2 text-muted" style="font-size:13px;">
+        每个资产最多设置 3 档；跌幅从历史最高点算起；两列都填该档才生效；同一下跌周期每档只触发一次。
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered mb-1" style="font-size:12px;">
+          <thead style="background:#f8f8f8;">
+            <tr>
+              <th rowspan="2" style="width:22%;vertical-align:middle;">资产</th>
+              <th colspan="2" class="text-center" style="background:#fff8e1;">第1档</th>
+              <th colspan="2" class="text-center" style="background:#fff3cd;">第2档</th>
+              <th colspan="2" class="text-center" style="background:#ffe082;">第3档</th>
+            </tr>
+            <tr>
+              <th style="background:#fff8e1;">跌幅%</th><th style="background:#fff8e1;">金额(元)</th>
+              <th style="background:#fff3cd;">跌幅%</th><th style="background:#fff3cd;">金额(元)</th>
+              <th style="background:#ffe082;">跌幅%</th><th style="background:#ffe082;">金额(元)</th>
+            </tr>
+          </thead>
+          <tbody id="pyramid-rules-body"></tbody>
+        </table>
+      </div>
+      <div class="d-flex gap-2 mt-3">
+        <button class="btn btn-secondary btn-sm" onclick="togglePyramidRules()">取消</button>
+        <button class="btn btn-primary btn-sm" onclick="savePyramidRules()">保存规则</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 汇总卡片 ── -->
+  <div class="row g-3 mb-4" id="summary-row">
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="summary-card">
+        <div class="label">起始时间</div>
+        <div class="value" id="s-start-date" style="font-size:18px;">2026-01-01</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="summary-card">
+        <div class="label">当前总资产</div>
+        <div class="value" id="s-total-value">--</div>
+        <div class="sub text-muted" id="s-init-value"></div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="summary-card">
+        <div class="label">累计收益</div>
+        <div class="value" id="s-return">--</div>
+        <div class="sub" id="s-return-rate"></div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="summary-card">
+        <div class="label">年化收益率</div>
+        <div class="value" id="s-annualized">--</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="summary-card">
+        <div class="label">当前回撤</div>
+        <div class="value" id="s-cur-dd">--</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3 col-xl-2">
+      <div class="summary-card">
+        <div class="label">最大回撤</div>
+        <div class="value" id="s-max-dd">--</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+
+    <!-- ── 左列 ── -->
+    <div class="col-12 col-xl-8">
+
+      <!-- 资产现状表格 -->
+      <div class="panel">
+        <div class="panel-title">资产现状</div>
+        <div class="table-responsive">
+          <table class="table table-hover table-sm mb-0" id="asset-table">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>当前价</th>
+                <th>今日</th>
+                <th>份额</th>
+                <th>当前市值</th>
+                <th>实际比例</th>
+                <th>偏离度</th>
+                <th id="th-return-since">区间收益率</th>
+                <th>距历史高点</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 净值曲线 -->
+      <div class="panel">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="panel-title mb-0">组合净值曲线</div>
+          <div id="chart-legend" class="d-flex flex-wrap gap-2" style="font-size:12px;"></div>
+        </div>
+        <div id="chart-netvalue"></div>
+      </div>
+
+      <!-- 历史再平衡记录 -->
+      <div class="panel">
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="panel-title mb-0">调仓历史记录</div>
+          <button class="btn btn-sm btn-outline-secondary" onclick="toggleHistory()">展开/折叠</button>
+        </div>
+        <div id="history-body" class="mt-3">
+          <div class="table-responsive">
+            <table class="table table-sm" id="history-table">
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>类型</th>
+                  <th>操作摘要</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 每日历史数据 -->
+      <div class="panel">
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="panel-title mb-0">每日历史数据</div>
+          <button class="btn btn-sm btn-outline-secondary" onclick="toggleDailyHistory()">展开/折叠</button>
+        </div>
+        <div id="daily-history-body" style="display:none;" class="mt-3">
+          <div id="daily-history-loading" class="text-muted" style="font-size:13px;">加载中…</div>
+          <div class="table-responsive" style="max-height:480px;overflow-y:auto;">
+            <table class="table table-sm table-hover mb-0" id="daily-history-table" style="font-size:12px;">
+              <thead style="position:sticky;top:0;background:#fff;z-index:1;">
+                <tr id="daily-history-thead"></tr>
+              </thead>
+              <tbody id="daily-history-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /左列 -->
+
+    <!-- ── 右列 ── -->
+    <div class="col-12 col-xl-4">
+
+      <!-- 资金操作 -->
+      <div class="panel">
+        <div class="panel-title">资金操作</div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-success flex-fill" onclick="openInvestModal()">＋ 投入资金</button>
+          <button class="btn btn-sm btn-outline-secondary flex-fill" onclick="openWithdrawModal()">－ 取出资金</button>
+        </div>
+      </div>
+
+      <!-- 再平衡提醒 -->
+      <div class="panel" id="rebalance-panel">
+        <div class="panel-title">再平衡</div>
+        <div id="rebalance-content"></div>
+      </div>
+
+      <!-- 金字塔加仓提醒 -->
+      <div class="panel">
+        <div class="panel-title">金字塔加仓信号</div>
+        <div id="pyramid-content"></div>
+      </div>
+
+      <!-- 各资产贡献 -->
+      <div class="panel">
+        <div class="panel-title">各资产收益贡献</div>
+        <div id="chart-contrib"></div>
+      </div>
+
+    </div><!-- /右列 -->
+
+  </div><!-- /row -->
+</div><!-- /container -->
+
+
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── 全局状态 ──────────────────────────────────
+let portfolioData = null;
+let chartNetvalue = null;
+let chartContrib  = null;
+
+const ASSET_COLORS = {
+  "510880": "#e65100",
+  "518880": "#f9a825",
+  "511260": "#1565c0",
+  "513500": "#2e7d32",
+  "513100": "#6a1b9a",
+  "511880": "#546e7a",
+};
+
+// ── 工具函数 ──────────────────────────────────
+const fmt = (n, digits=2) => n == null ? '--' : n.toLocaleString('zh-CN', {minimumFractionDigits: digits, maximumFractionDigits: digits});
+const fmtPct = (n, digits=2) => n == null ? '--' : (n*100).toFixed(digits) + '%';
+const fmtMoney = n => n == null ? '--' : '¥' + fmt(n, 0);
+
+function colorClass(n) {
+  if (n > 0.0001) return 'text-up';
+  if (n < -0.0001) return 'text-down';
+  return 'text-flat';
+}
+function signStr(n) { return n > 0 ? '+' : ''; }
+
+// ── 初始化 ──────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  initCharts();
+  loadData(false);  // 首次加载：不刷新，使用缓存
+});
+
+window.addEventListener('resize', () => {
+  chartNetvalue && chartNetvalue.resize();
+  chartContrib  && chartContrib.resize();
+});
+
+// ── 数据加载 ──────────────────────────────────
+async function loadData(refresh) {
+  showLoading(refresh ? '正在从 akshare 拉取最新数据…' : '正在加载数据…');
+  try {
+    const url = refresh ? '/api/refresh' : '/api/data';
+    const resp = await fetch(url, { method: refresh ? 'POST' : 'GET' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    portfolioData = await resp.json();
+    renderAll(portfolioData);
+  } catch(e) {
+    alert('数据加载失败：' + e.message);
+  } finally {
+    hideLoading();
+  }
+}
+
+function doRefresh() { loadData(true); }
+
+// ── 渲染全部 ──────────────────────────────────
+function renderAll(d) {
+  renderSummary(d);
+  renderAssetTable(d.assets, d.total_value);
+  renderRebalance(d.rebalance);
+  renderPyramid(d.pyramid);
+  renderHistory(d.rebalance_history);
+  renderChartNetvalue(d.chart);
+  renderChartContrib(d.contributions);
+  document.getElementById('last-updated').textContent = '最后更新：' + d.last_updated;
+  const thReturn = document.getElementById('th-return-since');
+  if (thReturn && d.start_date) thReturn.textContent = d.start_date.slice(0, 7) + ' 起收益';
+}
+
+// ── 汇总卡片 ──────────────────────────────────
+function renderSummary(d) {
+  const retClass = colorClass(d.total_return);
+  const startDate = d.start_date || '2026-01-01';
+  document.getElementById('s-start-date').textContent = startDate;
+  document.getElementById('loading-start-date').textContent = startDate;
+  document.getElementById('s-total-value').textContent = fmtMoney(d.total_value);
+  document.getElementById('s-init-value').innerHTML =
+    `净投入 ${fmtMoney(d.total_assets_initial)}`;
+  document.getElementById('s-return').innerHTML =
+    `<span class="${retClass}">${signStr(d.total_return)}${fmtMoney(d.total_return)}</span>`;
+  document.getElementById('s-return-rate').innerHTML =
+    `<span class="${retClass}">${signStr(d.total_return_rate)}${fmtPct(d.total_return_rate)}</span>`;
+  document.getElementById('s-annualized').innerHTML =
+    `<span class="${colorClass(d.annualized_return)}">${signStr(d.annualized_return)}${fmtPct(d.annualized_return)}</span>`;
+  document.getElementById('s-cur-dd').innerHTML =
+    `<span class="${d.current_drawdown < -0.03 ? 'text-up' : 'text-down'}">${fmtPct(d.current_drawdown)}</span>`;
+  document.getElementById('s-max-dd').innerHTML =
+    `<span class="text-up">${fmtPct(d.max_drawdown)}</span>`;
+}
+
+// ── 资产表格 ──────────────────────────────────
+function renderAssetTable(assets) {
+  const tbody = document.querySelector('#asset-table tbody');
+  tbody.innerHTML = '';
+  assets.forEach(a => {
+    const devAbs = Math.abs(a.deviation);
+    const devClass = devAbs >= 0.05 ? 'deviation-warn' : 'deviation-ok';
+    const priceClass = colorClass(a.price_change_pct);
+
+    // 距历史高点：负=低于高点(红)，0=在高点，正=创新高(绿)
+    const distHtml = a.dist_from_high != null
+      ? `<span class="${a.dist_from_high < 0 ? 'text-up' : 'text-down'}">${signStr(a.dist_from_high)}${fmtPct(a.dist_from_high)}</span>`
+      : '<span class="text-muted">—</span>';
+
+    // 2026收益率：负=亏损(红)，正=盈利(绿)
+    const ret2026Html = a.return_since_2026 != null
+      ? `<span class="${a.return_since_2026 >= 0 ? 'text-down' : 'text-up'}">${signStr(a.return_since_2026)}${fmtPct(a.return_since_2026)}</span>`
+      : '<span class="text-muted">—</span>';
+
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td>
+          <span class="fw-500">${a.name}</span><br>
+          <span class="text-muted" style="font-size:11px;">${a.code}</span>
+        </td>
+        <td>${fmt(a.price, 4)}</td>
+        <td class="${priceClass}">${signStr(a.price_change_pct)}${fmtPct(a.price_change_pct)}</td>
+        <td class="text-muted" style="font-size:12px;">${fmt(a.shares, 2)}</td>
+        <td>${fmtMoney(a.current_value)}</td>
+        <td>${fmtPct(a.current_ratio)}</td>
+        <td class="${devClass}">${signStr(a.deviation)}${fmtPct(a.deviation)}</td>
+        <td>${ret2026Html}</td>
+        <td>${distHtml}</td>
+      </tr>
+    `);
+  });
+}
+
+// ── 再平衡面板 ──────────────────────────────────
+function renderRebalance(rb) {
+  const el = document.getElementById('rebalance-content');
+  if (!rb) { el.innerHTML = ''; return; }
+
+  // 下次调仓
+  let nextHtml = '';
+  if (rb.next_date) {
+    const daysLeft = Math.ceil((new Date(rb.next_date) - new Date()) / 86400000);
+    nextHtml = `
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <span style="font-size:13px;color:var(--text-muted);">下次季度调仓</span>
+        <strong>${rb.next_date}</strong>
+        <span class="badge bg-secondary">${daysLeft} 天后</span>
+      </div>`;
+  }
+
+  // 上次调仓
+  let lastHtml = '';
+  if (rb.last) {
+    const rows = rb.last.suggestions.map(s => `
+      <tr>
+        <td>${s.name}</td>
+        <td>${fmtMoney(s.current_value)}</td>
+        <td>${fmtMoney(s.target_value)}</td>
+        <td class="${s.diff >= 0 ? 'text-down' : 'text-up'} fw-600">
+          ${s.action} ${fmtMoney(Math.abs(s.diff))}
+        </td>
+        <td class="text-muted" style="font-size:11px;">${fmt(Math.abs(s.shares_diff), 0)} 份</td>
+      </tr>`).join('');
+
+    lastHtml = `
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">
+        上次调仓：${rb.last.trigger_date}
+        <span class="badge bg-primary ms-1">${rb.last.trigger_type}</span>
+        ${rb.last.executed_at && rb.last.executed_at !== rb.last.trigger_date
+          ? `<span class="ms-1">（执行：${rb.last.executed_at}）</span>` : ''}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>资产</th><th>调仓前</th><th>目标</th><th>操作</th><th>份额</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  } else {
+    lastHtml = `<div class="text-muted" style="font-size:13px;">暂无调仓记录</div>`;
+  }
+
+  el.innerHTML = nextHtml + lastHtml;
+}
+
+// ── 金字塔面板 ──────────────────────────────────
+function renderPyramid(signals) {
+  const el = document.getElementById('pyramid-content');
+  if (!signals || signals.length === 0) {
+    el.innerHTML = '<div class="text-muted" style="font-size:13px;">暂无加仓信号</div>';
+    return;
+  }
+
+  let html = '';
+  signals.forEach(s => {
+    const dropClass = s.current_drop_pct >= 5 ? 'text-up' : 'text-muted';
+
+    const tiersHtml = s.tiers.map(t => {
+      const gapPct = ((t.drop_threshold - s.current_drop) * 100).toFixed(1);
+      const triggeredDot = t.is_triggered
+        ? `<span style="width:7px;height:7px;border-radius:50%;background:#dc3545;display:inline-block;"></span>`
+        : `<span style="width:7px;height:7px;border-radius:50%;background:#ccc;display:inline-block;"></span>`;
+      const lastExec = t.last_executed
+        ? `<span class="text-muted" style="font-size:11px;">触发：${t.last_executed}</span>`
+        : `<span class="text-muted" style="font-size:11px;">再跌 ${gapPct}% 触发</span>`;
+      return `
+        <div class="tier-row">
+          ${triggeredDot}
+          <span class="tier-badge${t.is_triggered ? '' : ' tier-pending'}">第 ${t.tier} 档</span>
+          <span class="text-muted" style="font-size:12px;">≥${t.drop_threshold_pct}</span>
+          <span style="font-size:12px;">¥${t.amount.toLocaleString()}</span>
+          ${lastExec}
+        </div>`;
+    }).join('');
+
+    html += `
+      <div class="pyramid-card">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <div>
+            <span class="fw-600">${s.name}</span>
+            <span class="text-muted ms-2" style="font-size:12px;">${s.code}</span>
+          </div>
+          <div class="text-end">
+            <div class="${dropClass} fw-600" style="font-size:13px;">距高点 -${s.current_drop_pct}%</div>
+            <div class="text-muted" style="font-size:11px;">高点 ${fmt(s.hist_max,4)}</div>
+          </div>
+        </div>
+        ${tiersHtml}
+      </div>`;
+  });
+  el.innerHTML = html;
+}
+
+// ── 历史记录表格 ──────────────────────────────
+function renderHistory(history) {
+  const tbody = document.querySelector('#history-table tbody');
+  tbody.innerHTML = '';
+  if (!history || history.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">暂无记录</td></tr>';
+    return;
+  }
+  history.forEach(h => {
+    let typeBadge, summary, statusBadge = `<span class="badge bg-success">已执行</span>`;
+    if (h.record_type === 'pyramid') {
+      typeBadge = `<span class="badge bg-warning text-dark">金字塔</span>`;
+      summary = `${h.name} 买入 ${fmtMoney(h.amount)}（${(h.tier_drop*100).toFixed(0)}% 档，${fmt(h.shares_bought,0)} 份 @ ${fmt(h.price,4)}）`;
+    } else if (h.trigger_type === '资金投入') {
+      typeBadge = `<span class="badge bg-success">资金投入</span>`;
+      summary = (h.details || []).map(x => `${x.name} +${fmtMoney(x.amount)}`).join('；') || '—';
+    } else if (h.trigger_type === '资金取出') {
+      typeBadge = `<span class="badge bg-secondary">资金取出</span>`;
+      summary = (h.details || []).map(x => `${x.name} -${fmtMoney(x.amount)}`).join('；') || '—';
+    } else {
+      typeBadge = `<span class="badge bg-primary">${h.trigger_type}</span>`;
+      summary = (h.details || [])
+        .filter(s => Math.abs(s.diff) > 100)
+        .map(s => `${s.name}${s.action}${fmtMoney(Math.abs(s.diff))}`)
+        .join('；') || '—';
+      statusBadge = h.is_executed
+        ? `<span class="badge bg-success">已执行</span>`
+        : `<span class="badge bg-warning text-dark">未执行</span>`;
+    }
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td class="text-muted" style="white-space:nowrap;">${h.date}</td>
+        <td>${typeBadge}</td>
+        <td style="max-width:300px;white-space:normal;font-size:12px;">${summary}</td>
+        <td>${statusBadge}</td>
+      </tr>
+    `);
+  });
+}
+
+// ── 图表：组合净值 ──────────────────────────────
+function initCharts() {
+  chartNetvalue = echarts.init(document.getElementById('chart-netvalue'));
+  chartContrib  = echarts.init(document.getElementById('chart-contrib'));
+}
+
+function renderChartNetvalue(chart) {
+  // 动态纵轴：基于实际收益率范围，留 20% 边距
+  const allVals = [...chart.portfolio, ...(chart.csi300||[]), ...(chart.sp500||[])]
+    .filter(v => v != null);
+  const dataMin = Math.min(...allVals);
+  const dataMax = Math.max(...allVals);
+  const pad = Math.max((dataMax - dataMin) * 0.2, 0.005);
+  const yMin = parseFloat((dataMin - pad).toFixed(3));
+  const yMax = parseFloat((dataMax + pad).toFixed(3));
+
+  const pct = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%';
+
+  const option = {
+    tooltip: { trigger: 'axis', formatter: params => {
+      let html = `<b>${params[0].axisValue}</b><br>`;
+      params.forEach(p => {
+        if (p.value != null)
+          html += `${p.marker}${p.seriesName} <b>${pct(p.value)}</b><br>`;
+      });
+      return html;
+    }},
+    legend: { data: ['永久组合', '沪深300', '标普500'], bottom: 0, textStyle: { fontSize: 11 } },
+    grid: { left: 60, right: 20, top: 20, bottom: 40 },
+    xAxis: { type: 'category', data: chart.dates, axisLabel: { fontSize: 11 },
+             axisLine: { lineStyle: { color: '#ddd' } } },
+    yAxis: {
+      type: 'value', min: yMin, max: yMax,
+      axisLabel: { fontSize: 11, formatter: v => (v * 100).toFixed(1) + '%' },
+      splitLine: { lineStyle: { color: '#f0f0f0' } },
+    },
+    series: [
+      {
+        name: '永久组合',
+        type: 'line', data: chart.portfolio, smooth: true,
+        lineStyle: { color: '#1a1a2e', width: 2.5 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [{ offset: 0, color: 'rgba(26,26,46,.18)' },
+                       { offset: 1, color: 'rgba(26,26,46,.02)' }] }},
+        symbol: 'none',
+        markLine: { silent: true, data: [{ yAxis: 0, lineStyle: { color: '#bbb', type: 'dashed' } }] },
+      },
+      {
+        name: '沪深300',
+        type: 'line', data: chart.csi300 || [], smooth: true,
+        lineStyle: { color: '#e53935', width: 1.8, type: 'dashed' },
+        symbol: 'none', connectNulls: false,
+      },
+      {
+        name: '标普500',
+        type: 'line', data: chart.sp500 || [], smooth: true,
+        lineStyle: { color: '#1e88e5', width: 1.8, type: 'dashed' },
+        symbol: 'none', connectNulls: false,
+      },
+    ],
+  };
+  chartNetvalue.setOption(option, true);  // true = 完全替换，不合并旧选项
+}
+
+
+function renderChartContrib(contributions) {
+  const names  = contributions.map(c => c.name);
+  const gains  = contributions.map(c => c.gain);
+  const colors = contributions.map(c => c.gain >= 0 ? '#198754' : '#dc3545');
+
+  const option = {
+    tooltip: { trigger: 'axis', formatter: params => {
+      const p = params[0];
+      const c = contributions[p.dataIndex];
+      return `${c.name}<br>收益：¥${fmt(c.gain,0)}<br>收益率：${fmtPct(c.gain_rate)}`;
+    }},
+    grid: { left: 110, right: 20, top: 10, bottom: 20 },
+    xAxis: { type: 'value', axisLabel: { fontSize: 11, formatter: v => '¥' + (v/10000).toFixed(0)+'万' },
+             splitLine: { lineStyle: { color: '#f0f0f0' } } },
+    yAxis: { type: 'category', data: names, axisLabel: { fontSize: 11 } },
+    series: [{
+      type: 'bar',
+      data: gains.map((v,i) => ({ value: v, itemStyle: { color: colors[i] } })),
+      label: { show: true, position: v => v.value >= 0 ? 'right' : 'left',
+               formatter: p => fmtPct(contributions[p.dataIndex].gain_rate),
+               fontSize: 11 },
+    }],
+  };
+  chartContrib.setOption(option);
+}
+
+// ── 操作：执行再平衡 ──────────────────────────
+
+// ── 操作：执行金字塔加仓 ──────────────────────
+async function executePyramid(code, tierDrop, amount) {
+  const assetName = portfolioData?.assets?.find(a => a.code === code)?.name || code;
+  if (!confirm(`确认从现金仓扣除 ¥${amount.toLocaleString()}，加仓 ${assetName}（${(tierDrop*100).toFixed(0)}% 档）？`))
+    return;
+  showLoading('正在更新持仓…');
+  try {
+    const resp = await fetch('/api/pyramid/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, tier_drop: tierDrop, amount }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    await loadData(false);
+  } catch(e) {
+    alert('操作失败：' + e.message);
+    hideLoading();
+  }
+}
+
+// ── 设置面板 ────────────────────────────────
+function toggleSettings() {
+  const panel = document.getElementById('settings-panel');
+  const visible = panel.style.display !== 'none';
+  if (!visible) {
+    document.getElementById('pyramid-rules-panel').style.display = 'none';
+    document.getElementById('input-total-assets').value = portfolioData?.total_assets_initial ?? '';
+    document.getElementById('input-start-date').value = (portfolioData?.start_date ?? '2026-01-01').replace(/-/g, '');
+    const cfg = portfolioData?.assets_config ?? [];
+    renderAssetsTable(cfg);
+  }
+  panel.style.display = visible ? 'none' : 'block';
+}
+
+function togglePyramidRules() {
+  const panel = document.getElementById('pyramid-rules-panel');
+  const visible = panel.style.display !== 'none';
+  if (!visible) {
+    document.getElementById('settings-panel').style.display = 'none';
+    const cfg = portfolioData?.assets_config ?? [];
+    renderPyramidRulesTable(cfg, portfolioData?.pyramid_config ?? {});
+  }
+  panel.style.display = visible ? 'none' : 'block';
+}
+
+async function savePyramidRules() {
+  const rules = collectPyramidRulesFromTable();
+  try {
+    const resp = await fetch('/api/pyramid/rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pyramid_rules: rules }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    document.getElementById('pyramid-rules-panel').style.display = 'none';
+    await loadData(false);
+  } catch(e) {
+    alert('保存失败：' + e.message);
+  }
+}
+
+function renderPyramidRulesTable(assetsCfg, pyramidCfg) {
+  const tbody = document.getElementById('pyramid-rules-body');
+  tbody.innerHTML = '';
+  if (!assetsCfg || assetsCfg.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">请先配置资产</td></tr>';
+    return;
+  }
+  assetsCfg.forEach(a => {
+    const rules = pyramidCfg?.[a.code] || [];
+    let tiersHtml = '';
+    for (let i = 0; i < 3; i++) {
+      const t = rules[i] || {};
+      const dropVal = t.drop ? (t.drop * 100).toFixed(0) : '';
+      const amtVal  = t.amount || '';
+      tiersHtml += `
+        <td><input type="number" class="form-control form-control-sm py-rule-drop" min="1" max="99" step="1" placeholder="—" value="${dropVal}" style="min-width:64px;"></td>
+        <td><input type="number" class="form-control form-control-sm py-rule-amt" min="0" step="1000" placeholder="—" value="${amtVal}" style="min-width:80px;"></td>`;
+    }
+    const tr = document.createElement('tr');
+    tr.dataset.code = a.code;
+    tr.innerHTML = `<td class="text-muted" style="vertical-align:middle;">${a.name}<br><span style="font-size:11px;">${a.code}</span></td>${tiersHtml}`;
+    tbody.appendChild(tr);
+  });
+}
+
+function collectPyramidRulesFromTable() {
+  const rows = document.querySelectorAll('#pyramid-rules-body tr[data-code]');
+  const rules = {};
+  rows.forEach(tr => {
+    const code  = tr.dataset.code;
+    const drops = tr.querySelectorAll('.py-rule-drop');
+    const amts  = tr.querySelectorAll('.py-rule-amt');
+    const tiers = [];
+    for (let i = 0; i < 3; i++) {
+      const drop = parseFloat(drops[i].value);
+      const amt  = parseFloat(amts[i].value);
+      if (drop > 0 && amt > 0) {
+        tiers.push({ drop: +(drop / 100).toFixed(4), amount: amt });
+      }
+    }
+    rules[code] = tiers;
+  });
+  return rules;
+}
+
+function renderAssetsTable(cfg) {
+  const tbody = document.getElementById('assets-table-body');
+  tbody.innerHTML = '';
+  cfg.forEach(a => addAssetRow(a.name, a.code, +(a.target * 100).toFixed(2)));
+  updatePctTotal();
+}
+
+function addAssetRow(name = '', code = '', pct = '') {
+  const tbody = document.getElementById('assets-table-body');
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input class="form-control form-control-sm" type="text" placeholder="基金名称" value="${name}"></td>
+    <td><input class="form-control form-control-sm" type="text" placeholder="000000" maxlength="6" value="${code}"></td>
+    <td><input class="form-control form-control-sm asset-pct" type="number" min="0" max="100" step="0.01" placeholder="10" value="${pct}" oninput="updatePctTotal()"></td>
+    <td class="text-center"><button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="this.closest('tr').remove(); updatePctTotal()">✕</button></td>`;
+  tbody.appendChild(tr);
+}
+
+function updatePctTotal() {
+  const inputs = document.querySelectorAll('.asset-pct');
+  const total = Array.from(inputs).reduce((s, el) => s + (parseFloat(el.value) || 0), 0);
+  const hint = document.getElementById('pct-total-hint');
+  const ok = Math.abs(total - 100) < 0.1;
+  hint.textContent = `合计：${total.toFixed(2)}%${ok ? ' ✓' : '（需等于100%）'}`;
+  hint.style.color = ok ? '#28a745' : '#dc3545';
+}
+
+function collectAssetsFromTable() {
+  const rows = document.querySelectorAll('#assets-table-body tr');
+  const assets = [];
+  for (const tr of rows) {
+    const inputs = tr.querySelectorAll('input');
+    const name = inputs[0].value.trim();
+    const code = inputs[1].value.trim();
+    const pct  = parseFloat(inputs[2].value) || 0;
+    if (!name || !code) { alert('每行请填写完整的基金名称和代码'); return null; }
+    if (pct <= 0) { alert(`"${name}" 的比例须大于 0`); return null; }
+    assets.push({ name, code, target: +(pct / 100).toFixed(6) });
+  }
+  if (assets.length === 0) { alert('请至少添加一个资产'); return null; }
+  const total = assets.reduce((s, a) => s + a.target, 0);
+  if (Math.abs(total - 1.0) > 0.001) {
+    alert(`各资产比例之和须为100%，当前为 ${(total*100).toFixed(2)}%`);
+    return null;
+  }
+  return assets;
+}
+
+// ── 操作：重置持仓 ────────────────────────────
+async function reinitialize() {
+  const val = parseInt(document.getElementById('input-total-assets').value);
+  const dateVal = document.getElementById('input-start-date').value.trim();
+  if (!val || val < 10000) { alert('请输入有效的初始总资产金额'); return; }
+  if (!/^\d{8}$/.test(dateVal)) { alert('初始日期格式应为 YYYYMMDD，如 20260101'); return; }
+  const assets = collectAssetsFromTable();
+  if (!assets) return;
+  if (!confirm(`将清空所有持仓记录，以 ¥${val.toLocaleString()} 从 ${dateVal} 按新配置重新初始化，确认吗？`)) return;
+
+  document.getElementById('settings-panel').style.display = 'none';
+  showLoading('正在重置持仓…');
+  try {
+    const resp = await fetch('/api/reinitialize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ total_assets: val, start_date: dateVal, assets }),
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    await loadData(false);
+  } catch(e) {
+    alert('操作失败：' + e.message);
+    hideLoading();
+  }
+}
+
+// ── 工具 ──────────────────────────────────────
+function toggleHistory() {
+  const el = document.getElementById('history-body');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function showLoading(msg) {
+  document.getElementById('loading-msg').textContent = msg || '加载中…';
+  document.getElementById('loading-overlay').style.display = 'flex';
+}
+function hideLoading() {
+  document.getElementById('loading-overlay').style.display = 'none';
+}
+
+// ── 每日历史数据 ──────────────────────────────
+let dailyHistoryLoaded = false;
+
+async function toggleDailyHistory() {
+  const body = document.getElementById('daily-history-body');
+  const visible = body.style.display !== 'none';
+  body.style.display = visible ? 'none' : 'block';
+  if (!visible && !dailyHistoryLoaded) {
+    await loadDailyHistory();
+  }
+}
+
+async function loadDailyHistory() {
+  const loadingEl = document.getElementById('daily-history-loading');
+  try {
+    const resp = await fetch('/api/history');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    renderDailyHistory(data);
+    dailyHistoryLoaded = true;
+  } catch(e) {
+    loadingEl.textContent = '加载失败：' + e.message;
+  }
+}
+
+function renderDailyHistory(data) {
+  const loadingEl = document.getElementById('daily-history-loading');
+  const thead = document.getElementById('daily-history-thead');
+  const tbody = document.getElementById('daily-history-tbody');
+  const { codes, names, rows } = data;
+
+  // 表头
+  let thHtml = '<th>日期</th><th>组合总值</th><th>日涨跌</th>';
+  codes.forEach(code => { thHtml += `<th>${names[code]}<br><span style="font-weight:400;font-size:10px;">${code}</span></th>`; });
+  thead.innerHTML = thHtml;
+
+  // 表体
+  let tbHtml = '';
+  rows.forEach(r => {
+    const totalStr = r.total != null ? '¥' + r.total.toLocaleString('zh-CN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
+    let chgStr = '—', chgClass = 'daily-col-change-flat';
+    if (r.daily_change != null) {
+      const pct = (r.daily_change * 100).toFixed(2);
+      chgStr = (r.daily_change >= 0 ? '+' : '') + pct + '%';
+      chgClass = r.daily_change > 0.0001 ? 'daily-col-change-up' : r.daily_change < -0.0001 ? 'daily-col-change-down' : 'daily-col-change-flat';
+    }
+    let priceCols = codes.map(code => {
+      const p = r.prices[code];
+      return `<td>${p != null ? p.toFixed(4) : '—'}</td>`;
+    }).join('');
+    tbHtml += `<tr>
+      <td class="text-muted">${r.date}</td>
+      <td class="daily-col-total">${totalStr}</td>
+      <td class="${chgClass}">${chgStr}</td>
+      ${priceCols}
+    </tr>`;
+  });
+  tbody.innerHTML = tbHtml || '<tr><td colspan="20" class="text-center text-muted">暂无数据</td></tr>';
+  loadingEl.style.display = 'none';
+}
+
+// ── 资金操作 ────────────────────────────────────
+function openInvestModal() {
+  const amt = prompt('投入金额（元）：');
+  if (!amt) return;
+  const amount = parseFloat(amt.replace(/,/g, ''));
+  if (isNaN(amount) || amount <= 0) { alert('请输入有效金额'); return; }
+  if (!confirm(`确认按目标比例投入 ¥${amount.toLocaleString()} 元？`)) return;
+  fetch('/api/invest', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount }),
+  }).then(r => r.json()).then(d => {
+    if (d.error) { alert(d.error); return; }
+    const lines = d.details.map(x => `${x.name} +¥${x.amount.toLocaleString()}`).join('\n');
+    alert(`投入成功！\n${lines}`);
+    loadData(false);
+  }).catch(() => alert('请求失败'));
+}
+
+function openWithdrawModal() {
+  const amt = prompt('取出金额（元）：\n（将按目标比例从各资产等比赎回）');
+  if (!amt) return;
+  const amount = parseFloat(amt.replace(/,/g, ''));
+  if (isNaN(amount) || amount <= 0) { alert('请输入有效金额'); return; }
+  if (!confirm(`确认按目标比例从各资产取出共 ¥${amount.toLocaleString()} 元？`)) return;
+  fetch('/api/withdraw', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount }),
+  }).then(r => r.json()).then(d => {
+    if (d.error) { alert(d.error); return; }
+    alert(`取出成功！¥${d.amount.toLocaleString()} 元`);
+    loadData(false);
+  }).catch(() => alert('请求失败'));
+}
+</script>
+</body>
+</html>
